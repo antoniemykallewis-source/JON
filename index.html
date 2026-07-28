@@ -295,6 +295,16 @@ body.timing{padding-bottom:calc(94px + var(--safe-b))}
   font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
 .sumfoot button.primary{background:var(--heat);border-color:var(--heat);color:var(--heat-ink);font-weight:600}
 
+/* ---------- large-phone fixes (iPhone Pro Max is 440px wide) ---------- */
+main h1,.sum h1{max-width:100%;overflow-wrap:normal;word-break:normal}
+main h1.brk,.sum h1.brk{overflow-wrap:anywhere}
+@media(min-width:400px){
+  .wkgrid{grid-template-columns:166px repeat(6,68px)}
+}
+@supports(height:100dvh){
+  .sheet{max-height:88dvh}
+}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media(min-width:640px){
   body{max-width:520px;margin:0 auto;border-left:1px solid var(--line-soft);border-right:1px solid var(--line-soft)}
@@ -581,7 +591,7 @@ function renderLift(dir){
   main.innerHTML=`
     <div class="lift" style="--dir:${(dir||0)>=0?'16px':'-16px'}">
       <div class="count">LIFT <b>${String(S.idx+1).padStart(2,'0')}</b> OF ${String(d.exercises.length).padStart(2,'0')} · ${esc(d.tab).toUpperCase()}</div>
-      <h1 class="disp">${esc(ex.name)}${ex.main?'<span class="keytag">Key lift</span>':''}</h1>
+      <h1 id="liftTitle" class="disp">${esc(ex.name)}${ex.main?'<span class="keytag">Key lift</span>':''}</h1>
       <div class="rxrow">
         <span class="rx"><b>${setsFor(ex)}</b> sets</span>
         <span class="rx"><b>${esc(ex.reps)}</b> reps</span>
@@ -662,6 +672,7 @@ function renderLift(dir){
     else { save(); renderHeader(); showSummary(); }
   };
   paintGauge(ex,prev,e);
+  fitAll();
 }
 
 function histHTML(ex){
@@ -734,7 +745,7 @@ function paintGauge(ex,prev,e){
 function renderWeeks(){
   const d=dayObj(), main=$('main'), W=[1,2,3,4,5,6];
   let h=`<div class="lift"><div class="count">ALL WEEKS · ${esc(d.tab).toUpperCase()}</div>
-    <h1 class="disp" style="font-size:clamp(28px,7.4vw,36px)">${esc(d.title)}</h1>
+    <h1 id="liftTitle" class="disp" style="font-size:clamp(28px,7.4vw,36px)">${esc(d.title)}</h1>
     <div class="gridwrap"><div class="wkgrid">
     <div class="wkcell wkname wkhead"></div>`;
   W.forEach(w=>{h+=`<div class="wkcell wkhead ${w===S.week?'now':''}" style="--wc:var(${PHASE[w].c})">WK${w}</div>`;});
@@ -751,6 +762,7 @@ function renderWeeks(){
     h+=`<div class="wkcell wkfoot ${w===S.week?'now':''}" style="--wc:var(${PHASE[w].c});color:${n?'var(--wc)':'var(--faint)'}">${n}/${d.exercises.length}</div>`;});
   h+=`</div></div><div class="gridnote">Weights are in ${U()}. Tap any cell to open that lift in that week. Scroll sideways for later weeks.</div></div>`;
   main.innerHTML=h;
+  fitAll();
   main.querySelectorAll('.wkval').forEach(b=>{
     b.onclick=()=>{S.week=+b.dataset.w;S.idx=+b.dataset.i;S.view='run';save();renderAll();window.scrollTo({top:0});};
   });
@@ -843,6 +855,74 @@ function renderAll(){
 }
 
 
+
+/* ===================== TITLE FIT =====================
+   Syne and Staatliches set very wide in caps, so a fixed clamp
+   overflows on long names like CONVENTIONAL DEADLIFT. Shrink the
+   headline until it actually fits the column, then stop.        */
+let _probe=null;
+function probe(el){
+  if(!_probe){
+    _probe=document.createElement('span');
+    _probe.setAttribute('aria-hidden','true');
+    _probe.style.cssText='position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;pointer-events:none';
+    document.body.appendChild(_probe);
+  }
+  const cs=getComputedStyle(el);
+  _probe.style.fontFamily=cs.fontFamily;
+  _probe.style.fontWeight=cs.fontWeight;
+  _probe.style.fontStyle=cs.fontStyle;
+  _probe.style.letterSpacing=cs.letterSpacing;
+  _probe.style.textTransform=cs.textTransform;
+  return _probe;
+}
+function fitTitle(el,max,min){
+  if(!el) return;
+  el.classList.remove('brk');
+  const avail=el.clientWidth;
+  if(!avail) return;
+  /* the headline wraps at spaces on its own, so only the widest
+     unbreakable chunk decides the size. Hyphens are break points too. */
+  const chunks=(el.textContent||'').replace(/-/g,'- ').split(/\s+/).filter(Boolean);
+  if(!chunks.length) return;
+  const p=probe(el);
+  p.style.fontSize=max+'px';
+  let widest=0,longest=chunks[0];
+  for(const c of chunks){
+    p.textContent=c;
+    const w=p.offsetWidth;
+    if(w>widest){ widest=w; longest=c; }
+  }
+  let size=max;
+  if(widest>avail) size=Math.max(min,Math.floor(max*avail/widest));
+  el.style.fontSize=size+'px';
+  p.style.fontSize=size+'px'; p.textContent=longest;
+  if(p.offsetWidth>avail) el.classList.add('brk');   /* still too long: break it */
+
+  /* A four-line headline swallows the screen on a phone. Try to pull it
+     back to three, but not if that means shrinking the type to nothing. */
+  const lines=()=>{
+    const lh=parseFloat(getComputedStyle(el).lineHeight)||(parseFloat(el.style.fontSize)*1.05);
+    return el.scrollHeight/lh;
+  };
+  if(lines()>3.05){
+    const wide=size; let s2=size,guard=0;
+    while(s2>Math.max(min,30) && guard++<40 && lines()>3.05){ s2-=1; el.style.fontSize=s2+'px'; }
+    if(lines()>3.05) el.style.fontSize=wide+'px';   /* not worth it, keep it bold */
+  }
+}
+function fitAll(){
+  const t=document.getElementById('liftTitle');
+  if(t) fitTitle(t, Math.min(46, Math.round(window.innerWidth*0.105)), 17);
+  const s=document.getElementById('sumTitle');
+  if(s) fitTitle(s, Math.min(58, Math.round(window.innerWidth*0.135)), 24);
+}
+let fitT=null;
+const refit=()=>{clearTimeout(fitT);fitT=setTimeout(fitAll,90);};
+window.addEventListener('resize',refit);
+window.addEventListener('orientationchange',refit);
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(fitAll).catch(()=>{});
+
 /* ===================== DAY SUMMARY ===================== */
 const conv=v=>{const a=toDisp(Math.abs(v));return v<0?-a:a;};
 const fmt=n=>Number(n).toLocaleString('en-US');
@@ -906,7 +986,7 @@ function showSummary(){
 
   $('sum').innerHTML=`<div class="sweep"></div>
     <div class="kick">${esc(d.tab)} · Week ${S.week} · ${esc(PHASE[S.week].k)}</div>
-    <h1 class="disp">${head}</h1>
+    <h1 id="sumTitle" class="disp">${head}</h1>
     <p class="lede">${esc(lede)}</p>
     <div class="sumstats">
       <div class="sumstat"><div class="v" data-to="${s.logged}">0</div><span class="k">of ${s.total} lifts</span></div>
@@ -923,6 +1003,7 @@ function showSummary(){
   el.classList.add('on');
   el.scrollTop=0;
   document.body.style.overflow='hidden';
+  fitAll();
   el.querySelectorAll('.sumstat .v').forEach((n,i)=>setTimeout(()=>countUp(n,+n.dataset.to,700),120+i*110));
 
   $('sumDone').onclick=closeSummary;
